@@ -1,24 +1,43 @@
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
-from astrbot.api.star import Context, Star, register
-from astrbot.api import logger
+# astrbot_gmod_monitor.py (伪代码框架)
 
-@register("helloworld", "YourName", "一个简单的 Hello World 插件", "1.0.0")
-class MyPlugin(Star):
-    def __init__(self, context: Context):
-        super().__init__(context)
+import os
+import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
-    async def initialize(self):
-        """可选择实现异步的插件初始化方法，当实例化该插件类之后会自动调用该方法。"""
-
-    # 注册指令的装饰器。指令名为 helloworld。注册成功后，发送 `/helloworld` 就会触发这个指令，并回复 `你好, {user_name}!`
-    @filter.command("helloworld")
-    async def helloworld(self, event: AstrMessageEvent):
-        """这是一个 hello world 指令""" # 这是 handler 的描述，将会被解析方便用户了解插件内容。建议填写。
-        user_name = event.get_sender_name()
-        message_str = event.message_str # 用户发的纯文本消息字符串
-        message_chain = event.get_messages() # 用户所发的消息的消息链 # from astrbot.api.message_components import *
-        logger.info(message_chain)
-        yield event.plain_result(f"Hello, {user_name}, 你发了 {message_str}!") # 发送一条纯文本消息
-
-    async def terminate(self):
-        """可选择实现异步的插件销毁方法，当插件被卸载/停用时会调用。"""
+class CrashLogHandler(FileSystemEventHandler):
+    def on_modified(self, event):
+        if "crash_log.txt" in event.src_path:
+            # 检测到崩溃日志更新
+            self.analyze_crash()
+    
+    def analyze_crash(self):
+        # 1. 读取最近的 E2 代码
+        e2_log_path = "D:/gmod/Gmod/gmod/garrysmod/data/e2_logs/e2_uploads.txt"
+        
+        with open(e2_log_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 2. 提取最后一条 E2 记录
+        entries = content.split("========================================")
+        last_entry = entries[-2] if len(entries) >= 2 else None
+        
+        if last_entry:
+            # 3. 发送给 LLM 分析
+            prompt = f"""
+            GMod 服务器刚刚崩溃。以下是崩溃前最后上传的 E2 代码。
+            请分析这段代码是否包含恶意逻辑（如死循环、无限生成实体等）。
+            
+            {last_entry}
+            
+            请回答：
+            1. 是否恶意？(是/否/不确定)
+            2. 原因分析
+            3. 建议处理方式
+            """
+            
+            # 调用 LLM API
+            response = call_llm(prompt)
+            
+            # 4. 发送到 QQ 群
+            send_to_qq_group(f"[GMod监控] 服务器崩溃分析：\n{response}")
