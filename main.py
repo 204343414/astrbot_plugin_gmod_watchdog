@@ -7,18 +7,11 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from astrbot.api.all import *
 from astrbot.api.message_components import Plain
 
-# ============================================
-# 在这里填你的密钥（和 Lua、bat 里填的一样）
-# ============================================
-EXPECTED_SECRET = "在这里填你的密码"
-
-# 全局变量存储事件
 recent_events = []
 MAX_EVENTS = 50
 
 
 class GmodEventHandler(BaseHTTPRequestHandler):
-    """接收 GMod 服务器发来的数据"""
 
     def do_POST(self):
         try:
@@ -31,18 +24,6 @@ class GmodEventHandler(BaseHTTPRequestHandler):
 
             if payload_str:
                 event_data = json.loads(payload_str)
-
-                # 密钥验证
-                if event_data.get("secret") != EXPECTED_SECRET:
-                    logging.getLogger("gmod_monitor").warning("收到无效请求，密钥错误")
-                    self.send_response(403)
-                    self.end_headers()
-                    self.wfile.write(b"Forbidden")
-                    return
-
-                # 验证通过，删掉密钥不存储
-                event_data.pop("secret", None)
-
                 recent_events.append(event_data)
 
                 while len(recent_events) > MAX_EVENTS:
@@ -73,16 +54,13 @@ class GmodMonitorPlugin(Star):
         self.logger = logging.getLogger("gmod_monitor")
         self.config = config
 
-        # 从配置读取
         monitor_conf = self.config.get("monitor", {})
         self.http_port = monitor_conf.get("http_port", 9876)
         self.notify_group_id = monitor_conf.get("notify_group_id", "")
         self.auto_analyze = monitor_conf.get("auto_analyze", True)
 
-        # 启动 HTTP 接收器
         self._start_receiver()
 
-        # 启动通知循环
         self.last_event_count = 0
         asyncio.create_task(self._notify_loop())
 
@@ -98,7 +76,6 @@ class GmodMonitorPlugin(Star):
         t.start()
 
     async def _notify_loop(self):
-        """检查是否有需要主动推送的事件"""
         while True:
             try:
                 if len(recent_events) > self.last_event_count:
@@ -116,7 +93,6 @@ class GmodMonitorPlugin(Star):
             await asyncio.sleep(5)
 
     async def _send_group_msg(self, event):
-        """发送消息到QQ群"""
         event_type = event.get("event", "unknown")
         data = event.get("data", {})
         time_str = event.get("time", "未知时间")
