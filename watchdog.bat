@@ -32,7 +32,7 @@ goto LOOP
 echo [%date% %time%] 服务器崩溃！执行重启...
 
 REM 通知 AstrBot
-curl -s -X POST %BOT_URL% -d "payload={\"event\":\"crash\",\"time\":\"%date% %time%\",\"data\":{\"message\":\"服务器崩溃已自动重启\"}}" >NUL 2>NUL
+curl -s -X POST %BOT_URL% -d "payload={\"event\":\"crash\",\"time\":\"%date% %time%\",\"secret\":\"在这里填同样的密码\",\"data\":{\"message\":\"服务器崩溃已自动重启\"}}" >NUL 2>NUL
 
 REM 强制清理
 taskkill /F /IM %SERVER_EXE% 2>NUL
@@ -47,3 +47,4 @@ set FAIL_COUNT=0
 timeout /t 30 /nobreak >NUL
 
 goto LOOP
+
