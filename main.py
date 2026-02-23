@@ -1,202 +1,225 @@
 import os
-import time
-import asyncio
+import json
 import logging
+import asyncio
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from astrbot.api.all import *
 from astrbot.api.message_components import Plain
 
-@register("gmod_monitor", "YourName", "GMod服务器监控插件", "1.0.0")
+# 全局变量存储最近事件
+recent_events = []
+MAX_EVENTS = 50
+
+class GmodEventHandler(BaseHTTPRequestHandler):
+    """接收 GMod 服务器发来的数据"""
+
+    def do_POST(self):
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            body = self.rfile.read(length).decode('utf-8', errors='ignore')
+
+            # 解析 payload
+            import urllib.parse
+            params = urllib.parse.parse_qs(body)
+            payload_str = params.get('payload', [''])[0]
+
+            if payload_str:
+                event_data = json.loads(payload_str)
+                recent_events.append(event_data)
+
+                # 保持列表不超过上限
+                while len(recent_events) > MAX_EVENTS:
+                    recent_events.pop(0)
+
+                logging.getLogger("gmod_monitor").info(
+                    f"收到事件: {event_data.get('event', 'unknown')}"
+                )
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"OK")
+        except Exception as e:
+            logging.getLogger("gmod_monitor").error(f"处理请求出错: {e}")
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(str(e).encode())
+
+    def log_message(self, format, *args):
+        pass  # 不打印每次请求日志
+
+
+@register("gmod_monitor", "YourName", "GMod服务器监控", "2.0.0")
 class GmodMonitorPlugin(Star):
     def __init__(self, context: Context, config: dict, *args, **kwargs):
         super().__init__(context)
         self.logger = logging.getLogger("gmod_monitor")
         self.config = config
-        
-        # ============ 配置区域 ============
-        # 修改成你的实际路径
-        self.e2_log_path = r"D:\gmod\Gmod\gmod\garrysmod\data\e2_logs\e2_uploads.txt"
-        self.crash_log_path = r"D:\gmod\Gmod\gmod\garrysmod\data\crash_log.txt"
-        
-        # 记录上次读取位置
-        self.last_e2_size = 0
-        self.last_crash_size = 0
-        
-        # 初始化时记录当前文件大小（避免启动时读取全部历史）
-        if os.path.exists(self.e2_log_path):
-            self.last_e2_size = os.path.getsize(self.e2_log_path)
-        if os.path.exists(self.crash_log_path):
-            self.last_crash_size = os.path.getsize(self.crash_log_path)
-        
-        # 启动后台监控
-        asyncio.create_task(self._monitor_loop())
-        self.logger.info("GMod 监控插件已启动")
 
-    async def _monitor_loop(self):
-        """后台循环监控日志文件"""
+        # 启动 HTTP 接收服务器
+        self.http_port = 9876
+        self._start_receiver()
+
+        # 启动后台通知循环
+        self.notify_group_id = self.config.get("monitor", {}).get("notify_group_id", "")
+        self.last_event_count = 0
+        asyncio.create_task(self._notify_loop())
+
+        self.logger.info(f"GMod 监控插件已启动，HTTP 端口: {self.http_port}")
+
+    def _start_receiver(self):
+        def run():
+            server = HTTPServer(('0.0.0.0', self.http_port), GmodEventHandler)
+            self.logger.info(f"HTTP 接收器已启动: 0.0.0.0:{self.http_port}")
+            server.serve_forever()
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+
+    async def _notify_loop(self):
+        """检查是否有需要主动推送的事件"""
         while True:
             try:
-                await self._check_crash_log()
+                if len(recent_events) > self.last_event_count:
+                    for event in recent_events[self.last_event_count:]:
+                        event_type = event.get("event", "")
+
+                        # 崩溃和封禁事件主动推送到群
+                        if event_type in ("crash", "ban", "meltdown"):
+                            if self.notify_group_id:
+                                await self._send_group_msg(event)
+
+                    self.last_event_count = len(recent_events)
             except Exception as e:
-                self.logger.error(f"监控出错: {e}")
-            await asyncio.sleep(10)  # 每10秒检查一次
+                self.logger.error(f"通知循环出错: {e}")
 
-    async def _check_crash_log(self):
-        """检查是否有新的崩溃记录"""
-        if not os.path.exists(self.crash_log_path):
+            await asyncio.sleep(5)
+
+    async def _send_group_msg(self, event):
+        """发送消息到QQ群"""
+        event_type = event.get("event", "unknown")
+        data = event.get("data", {})
+        time_str = event.get("time", "未知时间")
+
+        if event_type == "crash":
+            msg = f"🚨 GMod 服务器崩溃！\n⏰ {time_str}\n🔄 看门狗已自动重启"
+
+        elif event_type == "ban":
+            msg = (
+                f"🔨 自动封禁通知\n"
+                f"⏰ {time_str}\n"
+                f"👤 {data.get('player_name', '未知')}\n"
+                f"🆔 {data.get('player_sid', '未知')}\n"
+                f"📝 {data.get('reason', '未知原因')}"
+            )
+
+        elif event_type == "meltdown":
+            culprits = data.get("culprits", {})
+            names = ", ".join(culprits.values()) if culprits else "未找到"
+            msg = (
+                f"⚠️ 服务器触发熔断保护！\n"
+                f"⏰ {time_str}\n"
+                f"🕵️ 嫌疑人: {names}\n"
+                f"🧹 已自动清图"
+            )
+        else:
             return
-        
-        current_size = os.path.getsize(self.crash_log_path)
-        if current_size > self.last_crash_size:
-            # 有新内容，说明服务器刚崩溃重启
-            self.logger.info("检测到服务器崩溃！")
-            
-            # 读取最近的 E2 代码
-            last_e2 = self._get_last_e2_entry()
-            
-            if last_e2:
-                # 这里可以调用 LLM 分析
-                # 暂时只是记录，具体 LLM 调用需要根据你的 AstrBot 配置
-                self.logger.info(f"崩溃前最后的 E2 上传:\n{last_e2}")
-            
-            self.last_crash_size = current_size
 
-    def _get_last_e2_entry(self):
-        """获取最后一条 E2 上传记录"""
-        if not os.path.exists(self.e2_log_path):
-            return None
-        
         try:
-            with open(self.e2_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            # 按分隔符切割
-            entries = content.split("========================================")
-            # 过滤空白
-            entries = [e.strip() for e in entries if e.strip()]
-            
-            if entries:
-                return entries[-1]  # 返回最后一条
-            return None
+            await self.context.send_message(
+                self.notify_group_id,
+                [Plain(msg)]
+            )
         except Exception as e:
-            self.logger.error(f"读取 E2 日志失败: {e}")
-            return None
-
-    def _get_recent_e2_entries(self, count=5):
-        """获取最近的几条 E2 记录"""
-        if not os.path.exists(self.e2_log_path):
-            return []
-        
-        try:
-            with open(self.e2_log_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read()
-            
-            entries = content.split("========================================")
-            entries = [e.strip() for e in entries if e.strip()]
-            
-            return entries[-count:] if len(entries) >= count else entries
-        except Exception as e:
-            self.logger.error(f"读取 E2 日志失败: {e}")
-            return []
+            self.logger.error(f"发送群消息失败: {e}")
 
     @command("gmod状态")
     async def cmd_status(self, event: AstrMessageEvent):
-        """查看 GMod 服务器状态"""
-        lines = ["📊 GMod 服务器监控状态", ""]
-        
-        # 检查 E2 日志
-        if os.path.exists(self.e2_log_path):
-            size = os.path.getsize(self.e2_log_path)
-            lines.append(f"✅ E2日志: {size/1024:.1f} KB")
-        else:
-            lines.append("❌ E2日志: 不存在")
-        
-        # 检查崩溃日志
-        if os.path.exists(self.crash_log_path):
-            size = os.path.getsize(self.crash_log_path)
-            lines.append(f"⚠️ 崩溃日志: {size/1024:.1f} KB (有崩溃记录)")
-        else:
-            lines.append("✅ 崩溃日志: 无 (服务器未崩溃过)")
-        
+        total = len(recent_events)
+        crashes = sum(1 for e in recent_events if e.get("event") == "crash")
+        bans = sum(1 for e in recent_events if e.get("event") == "ban")
+        e2s = sum(1 for e in recent_events if e.get("event") == "e2_upload")
+
+        lines = [
+            "📊 GMod 服务器监控",
+            "",
+            f"📦 总事件数: {total}",
+            f"💥 崩溃次数: {crashes}",
+            f"🔨 封禁次数: {bans}",
+            f"📝 E2上传数: {e2s}",
+        ]
+
+        if recent_events:
+            last = recent_events[-1]
+            lines.append(f"")
+            lines.append(f"最后事件: {last.get('event')} @ {last.get('time')}")
+
         yield event.plain_result("\n".join(lines))
 
     @command("最近e2")
     async def cmd_recent_e2(self, event: AstrMessageEvent, count: str = "3"):
-        """查看最近的 E2 上传记录"""
         try:
-            n = int(count)
-            n = min(n, 10)  # 最多10条
+            n = min(int(count), 10)
         except:
             n = 3
-        
-        entries = self._get_recent_e2_entries(n)
-        
-        if not entries:
+
+        e2_events = [e for e in recent_events if e.get("event") == "e2_upload"]
+        show = e2_events[-n:]
+
+        if not show:
             yield event.plain_result("📭 暂无 E2 上传记录")
             return
-        
-        lines = [f"📋 最近 {len(entries)} 条 E2 上传记录:", ""]
-        
-        for i, entry in enumerate(entries, 1):
-            # 提取关键信息（简化显示）
-            entry_lines = entry.split('\n')
-            summary = []
-            for line in entry_lines[:6]:  # 只取前6行（元信息）
-                if line.strip():
-                    summary.append(line.strip())
-            lines.append(f"【{i}】" + " | ".join(summary[:3]))
-        
+
+        lines = [f"📋 最近 {len(show)} 条 E2 上传:", ""]
+
+        for i, ev in enumerate(show, 1):
+            d = ev.get("data", {})
+            lines.append(
+                f"【{i}】{d.get('player_name','?')} "
+                f"({d.get('player_sid','?')}) "
+                f"{d.get('code_length', 0)}字符 "
+                f"@ {ev.get('time','?')}"
+            )
+
         yield event.plain_result("\n".join(lines))
 
     @command("分析e2")
-    async def cmd_analyze_e2(self, event: AstrMessageEvent):
-        """让 LLM 分析最后一条 E2 代码是否恶意"""
-        last_e2 = self._get_last_e2_entry()
-        
-        if not last_e2:
-            yield event.plain_result("📭 暂无 E2 记录可分析")
+    async def cmd_analyze(self, event: AstrMessageEvent):
+        e2_events = [e for e in recent_events if e.get("event") == "e2_upload"]
+
+        if not e2_events:
+            yield event.plain_result("📭 暂无 E2 记录")
             return
-        
-        yield event.plain_result("🔍 正在分析最后一条 E2 代码...")
-        
-        # 构造 LLM 分析提示
-        prompt = f"""你是一个 GMod Wiremod Expression 2 代码审计专家。
-请分析以下 E2 代码是否包含恶意逻辑（如死循环、无限生成实体、资源耗尽攻击等）。
 
-{last_e2}
+        last = e2_events[-1]
+        code = last.get("data", {}).get("code", "无代码")
+        player = last.get("data", {}).get("player_name", "未知")
 
-请回答：
-1. 是否恶意？(是/否/不确定)
-2. 风险等级：(高/中/低/无)
-3. 原因分析（简短）
-4. 建议处理方式"""
-        
-        # 调用 LLM
-        # AstrBot 的 LLM 调用方式可能是这样（需要根据你的版本调整）
+        yield event.plain_result("🔍 正在分析...")
+
+        prompt = (
+            f"你是 GMod Wiremod Expression 2 代码审计专家。\n"
+            f"玩家 {player} 上传了以下代码：\n\n"
+            f"```\n{code}\n```\n\n"
+            f"请判断：\n"
+            f"1. 是否恶意？(是/否/不确定)\n"
+            f"2. 风险等级：(高/中/低/无)\n"
+            f"3. 简短原因\n"
+            f"4. 建议处理"
+        )
+
         try:
-            func_tools_mgr = self.context.get_llm_tools_manager()
-            llm_response = await self.context.get_using_provider().text_chat(
+            resp = await self.context.get_using_provider().text_chat(
                 prompt=prompt,
                 session_id=event.session_id
             )
-            
-            if llm_response and llm_response.completion_text:
-                yield event.plain_result(f"🤖 E2 代码分析结果:\n\n{llm_response.completion_text}")
-            else:
-                yield event.plain_result("❌ LLM 分析失败，未返回结果")
-        except Exception as e:
-            self.logger.error(f"LLM 调用失败: {e}")
-            yield event.plain_result(f"❌ LLM 调用出错: {e}\n\n原始记录:\n{last_e2[:500]}...")
 
-    @command("清空e2日志")
-    async def cmd_clear_e2(self, event: AstrMessageEvent):
-        """清空 E2 日志文件"""
-        if os.path.exists(self.e2_log_path):
-            try:
-                with open(self.e2_log_path, 'w', encoding='utf-8') as f:
-                    f.write("")
-                self.last_e2_size = 0
-                yield event.plain_result("✅ E2 日志已清空")
-            except Exception as e:
-                yield event.plain_result(f"❌ 清空失败: {e}")
-        else:
-            yield event.plain_result("📭 E2 日志文件不存在")
+            if resp and resp.completion_text:
+                yield event.plain_result(
+                    f"🤖 E2 代码分析:\n\n{resp.completion_text}"
+                )
+            else:
+                yield event.plain_result("❌ LLM 无返回")
+        except Exception as e:
+            yield event.plain_result(f"❌ 分析失败: {e}")
