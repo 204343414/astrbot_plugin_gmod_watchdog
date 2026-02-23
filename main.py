@@ -57,12 +57,16 @@ class GmodMonitorPlugin(Star):
         self.logger = logging.getLogger("gmod_monitor")
         self.config = config
 
-        # 启动 HTTP 接收服务器
-        self.http_port = 9876
+    # 从配置读取
+        monitor_conf = self.config.get("monitor", {})
+        self.http_port = monitor_conf.get("http_port", 9876)
+        self.notify_group_id = monitor_conf.get("notify_group_id", "")
+        self.auto_analyze = monitor_conf.get("auto_analyze", True)
+
+    # 启动 HTTP 接收器
         self._start_receiver()
 
-        # 启动后台通知循环
-        self.notify_group_id = self.config.get("monitor", {}).get("notify_group_id", "")
+    # 启动通知循环
         self.last_event_count = 0
         asyncio.create_task(self._notify_loop())
 
