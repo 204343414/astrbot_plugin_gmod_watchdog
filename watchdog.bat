@@ -7,7 +7,7 @@ set SERVER_EXE=srcds.exe
 set CHECK_INTERVAL=5
 set MAX_FAILS=4
 set FAIL_COUNT=0
-set BOT_URL=http://你的美国服务器IP:9876/gmod_event
+set BOT_URL=http://你的astrBot的服务器IP:9876/gmod_event
 
 :LOOP
 echo [%date% %time%] 检查服务器状态...
@@ -45,4 +45,5 @@ start "" %SERVER_EXE% -console -game garrysmod +maxplayers 16 +map gm_construct 
 echo [%date% %time%] 服务器已重启
 set FAIL_COUNT=0
 timeout /t 30 /nobreak >NUL
+
 goto LOOP
