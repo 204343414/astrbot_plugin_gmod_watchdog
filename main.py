@@ -10,6 +10,7 @@ from astrbot.api.message_components import Plain
 # 全局变量存储最近事件
 recent_events = []
 MAX_EVENTS = 50
+EXPECTED_SECRET = "在这里填同样的密码"
 
 class GmodEventHandler(BaseHTTPRequestHandler):
 
