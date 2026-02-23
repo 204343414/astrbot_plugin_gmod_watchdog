@@ -1,8 +1,5 @@
 print("[反炸服] ====== 反炸服看门狗 V2.0 已加载 ======")
 
--- ============================================
--- 配置区域
--- ============================================
 local CONFIG = {
     LagThreshold    = 1.0,
     LagDuration     = 5,
@@ -10,20 +7,13 @@ local CONFIG = {
     MaxWarnings     = 3,
     BanFile         = "anticrash_bans.json",
     WebhookURL      = "http://你的美国服务器IP:9876",
-    Secret          = "在这里填一串你自己编的随机密码",
     SafeMode        = false
 }
 
--- ============================================
--- 变量初始化
--- ============================================
 local recentActions = {}
 local warningData   = {}
 local lagStartTime  = nil
 
--- ============================================
--- 警告数据 读写
--- ============================================
 local function LoadWarnings()
     if file.Exists(CONFIG.BanFile, "DATA") then
         local json = file.Read(CONFIG.BanFile, "DATA")
@@ -37,15 +27,11 @@ end
 
 LoadWarnings()
 
--- ============================================
--- 核心：发送数据到美国服务器
--- ============================================
 local function SendToBot(eventType, data)
     local payload = util.TableToJSON({
         event    = eventType,
         time     = os.date("%Y-%m-%d %H:%M:%S"),
         server   = GetHostName() or "未知",
-        secret   = CONFIG.Secret,
         data     = data
     })
 
@@ -59,9 +45,6 @@ local function SendToBot(eventType, data)
     )
 end
 
--- ============================================
--- 核心：记录玩家操作
--- ============================================
 local function LogAction(ply, actionType, detail)
     if not IsValid(ply) then return end
 
@@ -76,7 +59,6 @@ local function LogAction(ply, actionType, detail)
     table.insert(recentActions, entry)
     print(string.format("[监控] %s Used %s (%s)", ply:Nick(), actionType, detail or ""))
 
-    -- 清理30秒前的记录
     local cutoff = os.time() - 30
     for i = #recentActions, 1, -1 do
         if recentActions[i].time < cutoff then
@@ -85,9 +67,6 @@ local function LogAction(ply, actionType, detail)
     end
 end
 
--- ============================================
--- 监听工具枪
--- ============================================
 hook.Add("CanTool", "AntiCrash_ToolMonitor", function(ply, tr, toolmode)
     if toolmode == "wire_expression2" then
         LogAction(ply, "E2_TOOL", "使用E2工具枪")
@@ -96,16 +75,10 @@ hook.Add("CanTool", "AntiCrash_ToolMonitor", function(ply, tr, toolmode)
     end
 end)
 
--- ============================================
--- 监听实体生成
--- ============================================
 hook.Add("PlayerSpawnedSENT", "AntiCrash_EntMonitor", function(ply, ent)
     LogAction(ply, "SPAWN_ENT", ent:GetClass())
 end)
 
--- ============================================
--- 拦截 E2 代码上传 → 发送给 AstrBot
--- ============================================
 hook.Add("InitPostEntity", "AntiCrash_E2Hook", function()
     timer.Simple(5, function()
         local E2Ent = scripted_ents.GetStored("gmod_wire_expression2")
@@ -122,15 +95,13 @@ hook.Add("InitPostEntity", "AntiCrash_E2Hook", function()
             if code and #code > 0 and IsValid(ply) then
                 print(string.format("[E2记录] %s 上传了 E2 代码 (%d字符)", ply:Nick(), #code))
 
-                -- 发送给美国服务器的 AstrBot
                 SendToBot("e2_upload", {
                     player_name = ply:Nick(),
                     player_sid  = ply:SteamID(),
                     code_length = #code,
-                    code        = string.sub(code, 1, 2000)  -- 最多发2000字符
+                    code        = string.sub(code, 1, 2000)
                 })
 
-                -- 同时记录到操作日志
                 LogAction(ply, "E2_UPLOAD", string.format("%d字符", #code))
             end
 
@@ -141,9 +112,6 @@ hook.Add("InitPostEntity", "AntiCrash_E2Hook", function()
     end)
 end)
 
--- ============================================
--- 惩罚逻辑（三振出局）
--- ============================================
 local function PunishPlayer(sid, name)
     if not warningData[sid] then warningData[sid] = 0 end
     warningData[sid] = warningData[sid] + 1
@@ -190,9 +158,6 @@ local function PunishPlayer(sid, name)
     end
 end
 
--- ============================================
--- 性能监控与熔断
--- ============================================
 hook.Add("Think", "AntiCrash_PerformanceDog", function()
     local ft = FrameTime()
 
@@ -234,6 +199,4 @@ hook.Add("Think", "AntiCrash_PerformanceDog", function()
         if lagStartTime then print("[反炸服] 卡顿恢复") end
         lagStartTime = nil
     end
-
 end)
-
