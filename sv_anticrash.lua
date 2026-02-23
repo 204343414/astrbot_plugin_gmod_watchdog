@@ -15,7 +15,7 @@ local CONFIG = {
 
     -- 美国服务器 AstrBot 的地址
     -- 改成你的美国服务器公网IP和端口
-    WebhookURL      = "http://你挂astrBot的服务器ip:9876",
+    WebhookURL      = "http://你挂bot的服务器IP:9876",
 
     -- 安全模式（true = 只记录不踢人）
     SafeMode        = false
@@ -240,5 +240,4 @@ hook.Add("Think", "AntiCrash_PerformanceDog", function()
         if lagStartTime then print("[反炸服] 卡顿恢复") end
         lagStartTime = nil
     end
-
 end)
