@@ -12,23 +12,32 @@ recent_events = []
 MAX_EVENTS = 50
 
 class GmodEventHandler(BaseHTTPRequestHandler):
-    """接收 GMod 服务器发来的数据"""
 
     def do_POST(self):
         try:
             length = int(self.headers.get('Content-Length', 0))
             body = self.rfile.read(length).decode('utf-8', errors='ignore')
 
-            # 解析 payload
             import urllib.parse
             params = urllib.parse.parse_qs(body)
             payload_str = params.get('payload', [''])[0]
 
             if payload_str:
                 event_data = json.loads(payload_str)
+
+                # ===== 密钥验证 =====
+                if event_data.get("secret") != EXPECTED_SECRET:
+                    self.send_response(403)
+                    self.end_headers()
+                    self.wfile.write(b"Forbidden")
+                    return
+                
+                # 验证通过，删掉密钥不存储
+                event_data.pop("secret", None)
+                # ====================
+
                 recent_events.append(event_data)
 
-                # 保持列表不超过上限
                 while len(recent_events) > MAX_EVENTS:
                     recent_events.pop(0)
 
@@ -47,7 +56,7 @@ class GmodEventHandler(BaseHTTPRequestHandler):
             self.wfile.write(str(e).encode())
 
     def log_message(self, format, *args):
-        pass  # 不打印每次请求日志
+        pass
 
 
 @register("gmod_monitor", "YourName", "GMod服务器监控", "2.0.0")
