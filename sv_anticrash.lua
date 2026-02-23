@@ -4,20 +4,13 @@ print("[反炸服] ====== 反炸服看门狗 V2.0 已加载 ======")
 -- 配置区域
 -- ============================================
 local CONFIG = {
-    -- 性能监控
     LagThreshold    = 1.0,
     LagDuration     = 5,
     ScanTime        = 15,
     MaxWarnings     = 3,
-
-    -- 文件路径
     BanFile         = "anticrash_bans.json",
-
-    -- 美国服务器 AstrBot 的地址
-    -- 改成你的美国服务器公网IP和端口
-    WebhookURL      = "http://你挂bot的服务器IP:9876",
-
-    -- 安全模式（true = 只记录不踢人）
+    WebhookURL      = "http://你的美国服务器IP:9876",
+    Secret          = "在这里填一串你自己编的随机密码",
     SafeMode        = false
 }
 
@@ -240,4 +233,5 @@ hook.Add("Think", "AntiCrash_PerformanceDog", function()
         if lagStartTime then print("[反炸服] 卡顿恢复") end
         lagStartTime = nil
     end
+
 end)
