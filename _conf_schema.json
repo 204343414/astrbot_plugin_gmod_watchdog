@@ -1,43 +1,25 @@
 {
-  "server": {
-    "description": "GMod 服务器设置",
-    "type": "object",
-    "items": {
-      "e2_log_path": {
-        "description": "E2 代码日志路径",
-        "type": "string",
-        "default": "D:\\gmod\\Gmod\\gmod\\garrysmod\\data\\e2_logs\\e2_uploads.txt",
-        "hint": "sv_e2logger.lua 生成的 E2 代码记录文件完整路径"
-      },
-      "crash_log_path": {
-        "description": "崩溃日志路径",
-        "type": "string",
-        "default": "D:\\gmod\\Gmod\\gmod\\garrysmod\\data\\crash_log.txt",
-        "hint": "看门狗脚本在服务器崩溃时写入的日志文件路径"
-      }
-    }
-  },
   "monitor": {
     "description": "监控设置",
     "type": "object",
     "items": {
-      "check_interval": {
-        "description": "检查间隔 (秒)",
+      "http_port": {
+        "description": "HTTP 接收端口",
         "type": "int",
-        "default": 10,
-        "hint": "每隔多少秒检查一次日志文件变化"
-      },
-      "auto_analyze": {
-        "description": "崩溃后自动分析",
-        "type": "bool",
-        "default": true,
-        "hint": "检测到崩溃时是否自动调用 LLM 分析最后的 E2 代码"
+        "default": 9876,
+        "hint": "接收 GMod 服务器发来数据的端口，需要在防火墙放行"
       },
       "notify_group_id": {
         "description": "通知群号",
         "type": "string",
         "default": "",
-        "hint": "服务器崩溃时发送通知到哪个 QQ 群（留空则不主动通知）"
+        "hint": "服务器崩溃/封禁时自动发送通知到这个QQ群，留空则不主动通知"
+      },
+      "auto_analyze": {
+        "description": "崩溃后自动分析E2代码",
+        "type": "bool",
+        "default": true,
+        "hint": "检测到崩溃时是否自动调用LLM分析最后上传的E2代码"
       }
     }
   }
