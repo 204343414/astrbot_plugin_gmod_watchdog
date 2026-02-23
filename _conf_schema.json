@@ -9,11 +9,17 @@
         "default": 9876,
         "hint": "接收 GMod 服务器发来数据的端口，需要在防火墙放行"
       },
+      "secret": {
+        "description": "通信密钥",
+        "type": "string",
+        "default": "",
+        "hint": "GMod服务器和Bot之间的通信密钥，必须两边一致，防止伪造数据"
+      },
       "notify_group_id": {
         "description": "通知群号",
         "type": "string",
         "default": "",
-        "hint": "服务器崩溃/封禁时自动发送通知到这个QQ群，留空则不主动通知"
+        "hint": "服务器崩溃/封禁时自动发送通知到这个QQ群"
       },
       "auto_analyze": {
         "description": "崩溃后自动分析E2代码",
