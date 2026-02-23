@@ -7,12 +7,18 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from astrbot.api.all import *
 from astrbot.api.message_components import Plain
 
-# 全局变量存储最近事件
+# ============================================
+# 在这里填你的密钥（和 Lua、bat 里填的一样）
+# ============================================
+EXPECTED_SECRET = "在这里填你的密码"
+
+# 全局变量存储事件
 recent_events = []
 MAX_EVENTS = 50
-EXPECTED_SECRET = "在这里填同样的密码"
+
 
 class GmodEventHandler(BaseHTTPRequestHandler):
+    """接收 GMod 服务器发来的数据"""
 
     def do_POST(self):
         try:
@@ -26,16 +32,16 @@ class GmodEventHandler(BaseHTTPRequestHandler):
             if payload_str:
                 event_data = json.loads(payload_str)
 
-                # ===== 密钥验证 =====
+                # 密钥验证
                 if event_data.get("secret") != EXPECTED_SECRET:
+                    logging.getLogger("gmod_monitor").warning("收到无效请求，密钥错误")
                     self.send_response(403)
                     self.end_headers()
                     self.wfile.write(b"Forbidden")
                     return
-                
+
                 # 验证通过，删掉密钥不存储
                 event_data.pop("secret", None)
-                # ====================
 
                 recent_events.append(event_data)
 
@@ -67,16 +73,16 @@ class GmodMonitorPlugin(Star):
         self.logger = logging.getLogger("gmod_monitor")
         self.config = config
 
-    # 从配置读取
+        # 从配置读取
         monitor_conf = self.config.get("monitor", {})
         self.http_port = monitor_conf.get("http_port", 9876)
         self.notify_group_id = monitor_conf.get("notify_group_id", "")
         self.auto_analyze = monitor_conf.get("auto_analyze", True)
 
-    # 启动 HTTP 接收器
+        # 启动 HTTP 接收器
         self._start_receiver()
 
-    # 启动通知循环
+        # 启动通知循环
         self.last_event_count = 0
         asyncio.create_task(self._notify_loop())
 
@@ -99,7 +105,6 @@ class GmodMonitorPlugin(Star):
                     for event in recent_events[self.last_event_count:]:
                         event_type = event.get("event", "")
 
-                        # 崩溃和封禁事件主动推送到群
                         if event_type in ("crash", "ban", "meltdown"):
                             if self.notify_group_id:
                                 await self._send_group_msg(event)
@@ -166,7 +171,7 @@ class GmodMonitorPlugin(Star):
 
         if recent_events:
             last = recent_events[-1]
-            lines.append(f"")
+            lines.append("")
             lines.append(f"最后事件: {last.get('event')} @ {last.get('time')}")
 
         yield event.plain_result("\n".join(lines))
