@@ -45,13 +45,14 @@ local function SendToBot(eventType, data)
         event    = eventType,
         time     = os.date("%Y-%m-%d %H:%M:%S"),
         server   = GetHostName() or "未知",
+        secret   = CONFIG.Secret,
         data     = data
     })
 
     http.Post(
         CONFIG.WebhookURL .. "/gmod_event",
         { payload = payload },
-        function(body) end,  -- 成功回调（不需要处理）
+        function(body) end,
         function(err)
             print("[反炸服] 发送到Bot失败: " .. tostring(err))
         end
@@ -235,3 +236,4 @@ hook.Add("Think", "AntiCrash_PerformanceDog", function()
     end
 
 end)
+
